@@ -1,4 +1,6 @@
 require 'em_test_helper'
+require 'net/smtp'
+require 'time'
 
 class TestSmtpServer < Test::Unit::TestCase
 
@@ -31,17 +33,13 @@ class TestSmtpServer < Test::Unit::TestCase
     def receive_data_chunk c
       @my_msg_body = c.last
     end
-    def connection_ended
-      EM.stop
-    end
   end
 
   def test_mail
     c = nil
     EM.run {
       EM.start_server( Localhost, Localport, Mailserver ) {|conn| c = conn}
-      EM::Timer.new(2) {EM.stop} # prevent hanging the test suite in case of error
-      EM::Protocols::SmtpClient.send :host=>Localhost,
+      client = EM::Protocols::SmtpClient.send :host=>Localhost,
         :port=>Localport,
         :domain=>"bogus",
         :from=>"me@example.com",
@@ -49,9 +47,49 @@ class TestSmtpServer < Test::Unit::TestCase
         :header=> {"Subject"=>"Email subject line", "Reply-to"=>"me@example.com"},
         :body=>"Not much of interest here."
 
+      client.callback { EM.stop }
+
+      EM::Timer.new(2) { EM.stop } # prevent hanging the test suite in case of error
     }
     assert_equal( "Not much of interest here.", c.my_msg_body )
     assert_equal( "<me@example.com>", c.my_sender )
     assert_equal( ["<you@example.com>"], c.my_recipients )
+  end
+
+  def test_with_net_smtp
+    c = nil
+    EM.run do
+      EM.start_server( Localhost, Localport, Mailserver ) {|conn| c = conn}
+      operation = proc do
+        Net::SMTP.start(Localhost, Localport, "bogus") do |smtp|
+          send_smtp_message(smtp, 'me@example.com', 'you@example.com')
+          send_smtp_message(smtp, 'me@example.com', 'you@example.com')
+        end
+
+        assert_equal( "Not much of interest here.", c.my_msg_body )
+        assert_equal( "<me@example.com>", c.my_sender )
+        assert_equal( ["<you@example.com>", "<you@example.com>"], c.my_recipients )
+      end
+
+      callback = proc do |result|
+        EM.stop
+      end
+
+      EM.defer(operation, callback)
+    end
+  end
+
+private
+
+  def send_smtp_message(smtp, from, to)
+    msg = %{From: #{from}
+To: #{to}
+Subject: Email subject line
+Date: #{Time.now.rfc2822}
+Message-Id: <#{Time.now.to_f}@example.com>
+
+Not much of interest here.
+}
+    smtp.send_message(msg, from, to)
   end
 end

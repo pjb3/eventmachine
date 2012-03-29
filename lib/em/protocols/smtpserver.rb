@@ -433,7 +433,7 @@ module EventMachine
       # Requiring AUTH seems to be much more reasonable.
       # We don't currently support any notion of deriving an authentication from the TLS
       # negotiation, although that would certainly be reasonable.
-      # We DON'T allow MAIL FROM to be given twice.
+      # We allow MAIL FROM to be given twice.
       # We DON'T enforce all the various rules for validating the sender or
       # the reverse-path (like whether it should be null), and notifying the reverse
       # path in case of delivery problems. All of that is left to the calling application.
@@ -443,8 +443,6 @@ module EventMachine
           send_data "550 This server requires STARTTLS before MAIL FROM\r\n"
         elsif (@@parms[:auth]==:required and !@state.include?(:auth))
           send_data "550 This server requires authentication before MAIL FROM\r\n"
-        elsif @state.include?(:mail_from)
-          send_data "503 MAIL already given\r\n"
         else
           unless receive_sender sender
             send_data "550 sender is unacceptable\r\n"
